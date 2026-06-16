@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel 資料精確查詢系統</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: "Helvetica Neue", Helvetica, Arial, "PingFang TC", "Hiragino Sans GB", "Microsoft JhengHei", sans-serif;
+            margin: 30px;
+            background-color: #f5f7fa;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        h2 {
+            color: #1a365d;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 10px;
+            margin-top: 0;
+        }
+        .upload-section, .search-section {
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border: 1px solid #e2e8f0;
+        }
+        label {
+            font-weight: bold;
+            display: block;
+            margin-bottom: 8px;
+            color: #4a5568;
+        }
+        input[type="file"] {
+            display: block;
+            margin-bottom: 10px;
+        }
+        .status-msg {
+            font-size: 14px;
+            color: #64748b;
+            margin-top: 5px;
+        }
+        .search-group {
+            display: flex;
+            gap: 10px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #3182ce;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #2b6cb0;
+        }
+        button:disabled {
+            background-color: #cbd5e1;
+            cursor: not-allowed;
+        }
+        .info-box {
+            background-color: #ebf8ff;
+            border-left: 4px solid #3182ce;
+            padding: 12px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #2b6cb0;
+        }
+        .result-count {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #2d3748;
+        }
+        .no-data {
+            color: #e53e3e;
+            font-weight: bold;
+            padding: 20px;
+            background: #fff5f5;
+            border: 1px solid #fed7d7;
+            border-radius: 4px;
+        }
+        /* 表格樣式 */
+        .table-container {
+            overflow-x: auto;
+            margin-top: 15px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 14px;
+            text-align: left;
+        }
+        th, td {
+            border: 1px solid #cbd5e1;
+            padding: 12px;
+            white-space: nowrap;
+        }
+        th {
+            background-color: #edf2f7;
+            color: #2d3748;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f8fafc;
+        }
+        tr:hover {
+            background-color: #edf2f7;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Excel 資料精確查詢系統</h2>
+    
+    <div class="info-box">
+        <strong>系統限制與規範：</strong> 僅依據輸入之 Excel 檔案內容進行精確比對與回覆，絕不添加、推論、修改或補充任何外部資訊。
+    </div>
+
+    <div class="upload-section">
+        <label for="excelFile">第一步：請選擇並匯入 EXCEL 檔案 (.xlsx / .xls)</label>
+        <input type="file" id="excelFile" accept=".xlsx, .xls" />
+        <div id="uploadStatus" class="status-msg">尚未偵測到檔案。</div>
+    </div>
+
+    <div class="search-section">
+        <label for="searchKey">第二步：輸入查詢關鍵字（例如姓名 "AAA"）</label>
+        <div class="search-group">
+            <input type="text" id="searchKey" placeholder="請輸入關鍵字進行全文比對..." disabled />
+            <button id="searchBtn" onclick="executeSearch()" disabled>查詢</button>
+        </div>
+    </div>
+
+    <div id="resultSection"></div>
+</div>
+
+<script>
+    let globalHeaders = []; // 儲存 Excel 標題列
+    let globalDataRows = []; // 儲存 Excel 內容所有資料列
+
+    // 監聽檔案上傳事件
+    document.getElementById('excelFile').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        document.getElementById('uploadStatus').innerText = "檔案解析中，請稍候...";
+        
+        reader.onload = function(e) {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                
+                // 預設抓取第一個工作表 (Sheet)
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                
+                // 轉換為二維陣列 (包含標題與內容)
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+                
+                if (jsonData.length === 0) {
+                    alert("該 Excel 檔案無內容，請重新檢查。");
+                    resetSystem();
+                    return;
+                }
+
+                // 分離標題列與資料列
+                globalHeaders = jsonData[0];
+                globalDataRows = jsonData.slice(1).filter(row => row.some(cell => cell !== "")); // 濾除全空行
+
+                document.getElementById('uploadStatus').innerText = `成功載入工作表：${firstSheetName}，共 ${globalDataRows.length} 筆資料列。`;
+                
+                // 啟用查詢功能
+                document.getElementById('searchKey').disabled = false;
+                document.getElementById('searchBtn').disabled = false;
+                document.getElementById('resultSection').innerHTML = ""; // 清空舊結果
+                
+            } catch (error) {
+                console.error(error);
+                document.getElementById('uploadStatus').innerText = "檔案解析失敗，請確認是否為標準 Excel 格式。";
+                resetSystem();
+            }
+        };
+        
+        reader.readAsArrayBuffer(file);
+    });
+
+    // 重設系統狀態
+    function resetSystem() {
+        globalHeaders = [];
+        globalDataRows = [];
+        document.getElementById('searchKey').disabled = true;
+        document.getElementById('searchBtn').disabled = true;
+        document.getElementById('searchKey').value = "";
+        document.getElementById('resultSection').innerHTML = "";
+    }
+
+    // 執行關鍵字查詢
+    function executeSearch() {
+        const keyword = document.getElementById('searchKey').value.trim();
+        const resultSection = document.getElementById('resultSection');
+        
+        // 驗證是否輸入有效關鍵字
+        if (!keyword) {
+            resultSection.innerHTML = `<div class="no-data">【查詢不明確】請輸入有效關鍵字。</div>`;
+            return;
+        }
+
+        // 搜尋所有符合的資料列 (模糊比對，只要任一欄位包含關鍵字即可)
+        const matchedRows = globalDataRows.filter(row => {
+            return row.some(cell => {
+                // 將儲存格內容轉字串後進行不分大小寫比對
+                return String(cell).toLowerCase().includes(keyword.toLowerCase());
+            });
+        });
+
+        // 若查無符合，明確回覆查無資料
+        if (matchedRows.length === 0) {
+            resultSection.innerHTML = `<div class="no-data">查無資料</div>`;
+            return;
+        }
+
+        // 格式化輸出結果：呈現標題列與內容列
+        let htmlOutput = `<div class="result-count">依據 EXCEL 檔案內容，符合關鍵字「${keyword}」的資料共 ${matchedRows.length} 筆：</div>`;
+        htmlOutput += `<div class="table-container"><table>`;
+        
+        // 1. 生成標題列 (Th)
+        htmlOutput += `<thead><tr>`;
+        globalHeaders.forEach(header => {
+            htmlOutput += `<th>${escapeHtml(String(header))}</th>`;
+        });
+        htmlOutput += `</tr></thead>`;
+        
+        // 2. 生成內容列 (Td)
+        htmlOutput += `<tbody>`;
+        matchedRows.forEach(row => {
+            htmlOutput += `<tr>`;
+            // 確保依據標題欄位數量依序填入，若該列長度不足則補空字串
+            for (let i = 0; i < globalHeaders.length; i++) {
+                const cellValue = row[i] !== undefined ? row[i] : "";
+                htmlOutput += `<td>${escapeHtml(String(cellValue))}</td>`;
+            }
+            htmlOutput += `</tr>`;
+        });
+        htmlOutput += `</tbody></table></div>`;
+
+        resultSection.innerHTML = htmlOutput;
+    }
+
+    // 簡單的 HTML 轉義字元處理，防止網頁因特殊字元破壞排版
+    function escapeHtml(string) {
+        return string.replace(/&/g, "&amp;")
+                     .replace(/</g, "&lt;")
+                     .replace(/>/g, "&gt;")
+                     .replace(/"/g, "&quot;")
+                     .replace(/'/g, "&#039;");
+    }
+</script>
+
+</body>
+</html>
